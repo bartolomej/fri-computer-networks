@@ -4,10 +4,25 @@ import socket
 import struct
 import sys
 import threading
+import ssl
 
-PORT = 1257
+PORT = 1258
 HEADER_LENGTH = 2
 
+def setup_SSL_context():
+    #uporabi samo TLS, ne SSL
+    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+    # certifikat je obvezen
+    context.verify_mode = ssl.CERT_REQUIRED
+    #nalozi svoje certifikate
+    # preberi pot do certifikata preko cli argumenta
+    name = sys.argv[1]
+    context.load_cert_chain(certfile="{}_cert.crt".format(name), keyfile="{}.key".format(name))
+    # nalozi certifikate CAjev (samopodp. cert.= svoja CA!)
+    context.load_verify_locations('server_cert.crt')
+    # nastavi SSL CipherSuites (nacin kriptiranja)
+    context.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256')
+    return context
 
 def receive_fixed_length_msg(sock, msglen):
     message = b''
@@ -54,7 +69,8 @@ def message_receiver():
 
 # povezi se na streznik
 print("[system] connecting to chat server ...")
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+my_ssl_ctx = setup_SSL_context()
+sock = my_ssl_ctx.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
 sock.connect(("localhost", PORT))
 print("[system] connected!")
 

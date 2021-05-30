@@ -6,9 +6,25 @@ signal.signal(signal.SIGINT, signal.SIG_DFL)
 import socket
 import struct
 import threading
+import ssl
 
-PORT = 1257
+PORT = 1258
 HEADER_LENGTH = 2
+
+
+def setup_SSL_context():
+    # uporabi samo TLS, ne SSL
+    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+    # certifikat je obvezen
+    context.verify_mode = ssl.CERT_REQUIRED
+    # nalozi svoje certifikate
+    context.load_cert_chain(certfile="server_cert.crt", keyfile="server.key")
+    # nalozi certifikate CAjev, ki jim zaupas
+    # (samopodp. cert. = svoja CA!)
+    context.load_verify_locations('clients.pem')
+    # nastavi SSL CipherSuites (nacin kriptiranja)
+    context.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256')
+    return context
 
 
 def receive_fixed_length_msg(sock, msglen):
@@ -112,8 +128,10 @@ def client_thread(client_sock, client_addr):
 
 
 # kreiraj socket
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind(("", PORT))
+
+my_ssl_ctx = setup_SSL_context()
+server_socket = my_ssl_ctx.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+server_socket.bind(("localhost", PORT))
 server_socket.listen(1)
 
 # cakaj na nove odjemalce
@@ -129,6 +147,14 @@ while True:
     try:
         # pocakaj na novo povezavo - blokirajoc klic
         client_sock, client_addr = server_socket.accept()
+        cert = client_sock.getpeercert()
+        for sub in cert['subject']:
+            for key, value in sub:
+                # v commonName je ime uporabnika
+                if key == 'commonName':
+                    # zapomnimo si CommonName kot ime prijavljenega uporabnika
+                    with clients_map_lock:
+                        clients_map[value] = client_sock
         with clients_lock:
             clients.add(client_sock)
 
